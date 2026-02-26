@@ -1,0 +1,4 @@
+ignoredBuiltDependencies:
+  - bcrypt
+  - esbuild
+  - oxc-resolver
