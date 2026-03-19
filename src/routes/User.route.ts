@@ -9,7 +9,7 @@ const userouter = Router();
 
 userouter.post("/register",validateRequest(signUpSchema),registerUser);
 
-// Login 
+// Login
 userouter.post("/send-otp", sendOtp)
 
 userouter.post("/login",loginUser);

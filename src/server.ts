@@ -6,6 +6,7 @@ import { accessLoggerMiddleware } from "$/middlewares/accessLogger.middleware.js
 
 // import RootRouter from "./routes/Routes";
 import { createServer } from "node:http";
+import productRoutes from "$/routes/product.routes.js";
 
 import { errorHandler, notFoundMiddleware } from "./middlewares/error.middleware.js";
 import initializeServer from "$/config/server.config.js";
@@ -13,7 +14,7 @@ import { requestContextMiddleware } from "$/middlewares/requestContext.middlewar
 import responseHandler from "$/middlewares/response.middleware.js";
 import { applyCores } from "$/config/cors.config.js";
 import connectDB from "./config/db.config.js";
-import RootRouter from "$/routes/Root.router.js";
+import RootRouter from "$/routes/routes.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -50,6 +51,7 @@ app.use(accessLoggerMiddleware);
 app.use("/api", RootRouter);
 
 
+app.use("/api/products", productRoutes);
 
 app.use(notFoundMiddleware);
 

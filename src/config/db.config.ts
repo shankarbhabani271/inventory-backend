@@ -12,6 +12,7 @@ const connectDB = async () => {
     console.log("Connected to MongoDB");
     console.info("Connected to MongoDB");
 
+
     // await bootstrapAdmin();
 
     mongoose.connection.on("disconnected", () => {
@@ -24,7 +25,8 @@ const connectDB = async () => {
       console.info("Reconnected to MongoDB");
     });
   } catch (error) {
-    console.error("MongoDB connection error:", error);
+    console.error("MongoDB connection error:", error.message);
+    console.log(envConfig.DB_URI,"iiiii")
     process.exit(1);
   }
 };
