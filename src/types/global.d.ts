@@ -1,4 +1,5 @@
-import { IUser } from "$/models/User.model.ts";
+import { TUser } from "$/models/userModel.ts";
+
 
 declare global {
   namespace Express {
@@ -38,7 +39,7 @@ declare global {
     }
 
     interface Request {
-      user?: IUser;
+      user?: TUser;
       requestId: string;
       // user?: {
       //   name: string;

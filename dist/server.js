@@ -7,15 +7,21 @@ import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
 import { createServer } from 'http';
-import dotenv from 'dotenv';
+import mongoose2, { Schema } from 'mongoose';
 import { z, ZodError } from 'zod';
+import dotenv from 'dotenv';
 import os from 'os';
 import { v4 } from 'uuid';
 import cors from 'cors';
+<<<<<<< HEAD
 import mongoose, { Schema } from 'mongoose';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+=======
+import bcrypt from 'bcryptjs';
+import nodemailer from 'nodemailer';
+>>>>>>> 453003f225b70a968af64ea89b0b30435b4a4945
 
 // src/server.ts
 var LOG_DIR = path.resolve(process.cwd(), "logs");
@@ -82,6 +88,259 @@ var accessLoggerMiddleware = morgan(
     }
   }
 );
+var productSchema = new Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    description: {
+      type: String,
+      trim: true
+    },
+    brand: {
+      type: String,
+      trim: true
+    },
+    // category: {
+    //   type: mongoose.Schema.Types.ObjectId,
+    //   ref: "Category",
+    //   required: true
+    // },
+    // image:
+    // {
+    //   url: String,
+    //   publicId: String,
+    // },
+    isActive: {
+      type: Boolean,
+      default: true
+    }
+  },
+  {
+    timestamps: true
+  }
+);
+var ProductModel = mongoose2.model("Product", productSchema);
+var variantSchema = new mongoose2.Schema(
+  {
+    product: {
+      type: mongoose2.Schema.Types.ObjectId,
+      ref: "Product",
+      required: true
+    },
+    attributes: {
+      type: mongoose2.Schema.Types.Mixed,
+      default: {}
+    },
+    attributesKey: {
+      type: String,
+      required: true
+    },
+    sku: {
+      type: String,
+      required: true,
+      unique: true
+    },
+    price: {
+      salePrice: {
+        type: Number,
+        required: true
+      },
+      mrp: {
+        type: Number,
+        required: true
+      }
+    }
+  },
+  { timestamps: true }
+);
+var VariantModel = mongoose2.model("Variant", variantSchema);
+
+// src/controller/product.controller.ts
+var createProduct = async (req, res, next) => {
+  try {
+    const {
+      variants,
+      prodDetails
+    } = req.body;
+    const product = await ProductModel.create({ ...prodDetails });
+    const rex = variants.map((item) => {
+      const sku = `${prodDetails.name.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 1e4)}`;
+      return {
+        ...item,
+        sku
+      };
+    });
+    rex.forEach(async (variant) => {
+      await VariantModel.create({
+        ...variant,
+        product: product._id
+      });
+    });
+    res.success({
+      message: "Product created successfully",
+      data: product
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+var getAllProducts = async (_req, res) => {
+  try {
+    const products = await ProductModel.find();
+    const PopulatedProd = await Promise.all(
+      products.map(async (product) => {
+        const variants = await VariantModel.find({ product: product._id });
+        return {
+          product,
+          variants
+        };
+      })
+    );
+    res.success({
+      message: "Products retrieved successfully",
+      data: PopulatedProd
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var getSingleProduct = async (req, res) => {
+  try {
+    const product = await ProductModel.findById(req.params.id).populate("category").populate("variants");
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Product retrieved successfully",
+      data: product
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var updateProduct = async (req, res) => {
+  try {
+    const product = await ProductModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+    if (req.body.variants) {
+      await VariantModel.updateMany(
+        { product: req.params.id },
+        { $set: req.body.variants }
+      );
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Product updated successfully",
+      data: product
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var deleteProduct = async (req, res) => {
+  try {
+    const product = await ProductModel.findByIdAndDelete(req.params.id);
+    if (!product) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found"
+      });
+    }
+    if (req.params.id) {
+      await VariantModel.deleteMany({ product: req.params.id });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Product deleted successfully"
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// src/middlewares/validate.middleware.ts
+var validateRequest = (schemas) => {
+  return async (req, _res, next) => {
+    try {
+      if (schemas.body) {
+        await schemas.body.parseAsync(req.body);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+
+// src/middlewares/createzodschema.ts
+var CreateZodSchema = ({
+  body,
+  params,
+  query
+}) => {
+  return {
+    body,
+    params,
+    query
+  };
+};
+
+// src/validations/product.validation.ts
+var createProductSchema = CreateZodSchema(
+  {
+    body: z.object({
+      prodDetails: z.object({
+        name: z.string({ message: "Name is required" }).min(3, "Name must be at least 3 characters long").nonempty("Name is required"),
+        description: z.string({ message: "Description is required" }).min(30, "Description must be at least 30 characters long").nonempty("Description is required"),
+        brand: z.string({ message: "Brand is required" }).min(3, "Brand must be at least 3 characters long").nonempty("Brand is required"),
+        category: z.string({ message: "Category is required" }).nonempty("Category is required")
+      }),
+      variants: z.array(
+        z.object({
+          attribute: z.string({ message: "Attribute is required" }).nonempty("Attribute is required"),
+          attributeKey: z.string({ message: "Attribute Key is required" }).nonempty("Attribute Key is required"),
+          price: z.object({
+            salePrice: z.number({ message: "Sale Price is required" }).positive("Sale Price must be a positive number"),
+            mrp: z.number({ message: "MRP is required" }).positive("MRP must be a positive number")
+          })
+        })
+      )
+    })
+  }
+);
+
+// src/routes/product.routes.ts
+var productRoutes = Router();
+productRoutes.post("/", validateRequest(createProductSchema), createProduct);
+productRoutes.get("/", getAllProducts);
+productRoutes.get("/:id", getSingleProduct);
+productRoutes.put("/:id", updateProduct);
+productRoutes.delete("/:id", deleteProduct);
+var product_routes_default = productRoutes;
 dotenv.config();
 var envConfig = {
   DB_URI: process.env.DB_URI || "",
@@ -399,28 +658,30 @@ var applyCores = ({ app: app2 }) => {
   app2.options(/.*/, cors());
 };
 var connectDB = async () => {
-  if (mongoose.connection.readyState === 1) {
+  if (mongoose2.connection.readyState === 1) {
     console.info("MongoDB is already connected.");
     return;
   }
   try {
-    await mongoose.connect(env_config_default.DB_URI);
+    await mongoose2.connect(env_config_default.DB_URI);
     console.log("Connected to MongoDB");
     console.info("Connected to MongoDB");
-    mongoose.connection.on("disconnected", () => {
+    mongoose2.connection.on("disconnected", () => {
       console.log("Lost MongoDB connection");
       console.warn("Lost MongoDB connection");
     });
-    mongoose.connection.on("reconnected", () => {
+    mongoose2.connection.on("reconnected", () => {
       console.log("Reconnected to MongoDB");
       console.info("Reconnected to MongoDB");
     });
   } catch (error) {
-    console.error("MongoDB connection error:", error);
+    console.error("MongoDB connection error:", error.message);
+    console.log(env_config_default.DB_URI, "iiiii");
     process.exit(1);
   }
 };
 var db_config_default = connectDB;
+<<<<<<< HEAD
 
 // src/constants/user.constant.ts
 var USER_STATUS = /* @__PURE__ */ ((USER_STATUS2) => {
@@ -458,6 +719,9 @@ var verifyToken = ({
   }
 };
 var refreshTokenSchema = new Schema(
+=======
+var userSchema = new mongoose2.Schema(
+>>>>>>> 453003f225b70a968af64ea89b0b30435b4a4945
   {
     tokenHash: { type: String, required: true },
     createdAt: { type: Date, default: Date.now },
@@ -498,6 +762,7 @@ var userSchema = new Schema(
   },
   { timestamps: true }
 );
+<<<<<<< HEAD
 var UserModel = mongoose.model("User", userSchema);
 var otpSchema = new Schema(
   {
@@ -513,6 +778,26 @@ var OtpModel = mongoose.model("otp", otpSchema);
 
 // src/controllers/auth.controller.ts
 var sendOtp = async (req, res, next) => {
+=======
+var UserModel = mongoose2.model("User", userSchema);
+var userModel_default = UserModel;
+var otpSchema = new mongoose2.Schema({
+  email: {
+    type: String,
+    required: true
+  },
+  otp: {
+    type: String,
+    required: true
+  },
+  expiresAt: {
+    type: Date,
+    required: true
+  }
+});
+var otpModel_default = mongoose2.model("OTP", otpSchema);
+var registerUser = async (req, res, next) => {
+>>>>>>> 453003f225b70a968af64ea89b0b30435b4a4945
   try {
     const { email } = req.body;
     if (!email) {
@@ -662,6 +947,7 @@ var checkCookiesEnabled = (req, res) => {
     message: "Cookies enabled"
   });
 };
+<<<<<<< HEAD
 var setCookieTest = (_req, res) => {
   res.cookie("cookie_test", "1", {
     httpOnly: true,
@@ -861,6 +1147,9 @@ var CreateZodSchema = ({
   };
 };
 var signUpSchema = CreateZodSchema({
+=======
+var signUpSchema = {
+>>>>>>> 453003f225b70a968af64ea89b0b30435b4a4945
   body: z.object({
     name: z.string({ message: "Name is required" }).min(3, "Name must be at least 3 characters long").nonempty("Name is required"),
     password: z.string({ message: "Password is required" }).min(8, "Password must be at least 8 characters long.").refine((password) => /[A-Z]/.test(password), {
@@ -925,8 +1214,14 @@ authRouter.patch(
 );
 var auth_route_default = authRouter;
 var RootRouter = Router();
+<<<<<<< HEAD
 RootRouter.use("/auth", auth_route_default);
 var Root_router_default = RootRouter;
+=======
+RootRouter.use("/auth", User_route_default);
+RootRouter.use("/product", product_routes_default);
+var routes_default = RootRouter;
+>>>>>>> 453003f225b70a968af64ea89b0b30435b4a4945
 
 // src/server.ts
 var __filename$1 = fileURLToPath(import.meta.url);
@@ -951,7 +1246,8 @@ app.get("/", (_, res) => {
 app.set("trust proxy", true);
 app.use(requestContextMiddleware);
 app.use(accessLoggerMiddleware);
-app.use("/api", Root_router_default);
+app.use("/api", routes_default);
+app.use("/api/products", product_routes_default);
 app.use(notFoundMiddleware);
 app.use(errorHandler);
 
