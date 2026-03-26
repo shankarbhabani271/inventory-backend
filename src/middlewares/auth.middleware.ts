@@ -1,30 +1,87 @@
-import envConfig from "$/config/env.config.js"
-import jwt from "jsonwebtoken"
+import { USER_ROLE } from "$/constants/user.constant.js";
 
-export const authMiddleware = (req,res,next)=>{
+import {
+  hashToken,
+  verifyToken,
+  VerifyTokenType,
+} from "$/services/token.service.js";
+import jwt from "jsonwebtoken";
+import { JwtExpiredError } from "$/utils/appError.js";
+import { NextFunction, Request, Response } from "express";
+import envConfig from "$/config/env.config.js";
+import { UserModel } from "$/models/userModel.js";
+const authenticate = (roles: USER_ROLE[] = []) => {
+  const allowedRoles = roles?.length ? [...roles, USER_ROLE.SUPER_ADMIN] : null;
+  return async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const cookieName = "RefreshToken"
+      const refreshToken = req.cookies?.[cookieName];
 
-const token = req.cookies.token
+      if (!token && refreshToken) {
+        res.unauthorized({
+          message: "Session expired. Please reload.",
+        });
+        return;
+      }
+      if (!token) {
+        res.unauthorized({
+          message: "Token not found",
+        });
+        return;
+      }
 
-if(!token){
-return res.status(401).json({
-message:"Unauthorized"
-})
-}
+      try {
+        const decoded = verifyToken({
+          token: token,
+          type: VerifyTokenType.ACCESS,
+        });
 
-try{
+        const user = await UserModel.findById(decoded?.sub).lean();
+        if (!user) {
+          if (refreshToken) {
+            await UserModel.updateOne(
+              { "refreshTokens.tokenHash": hashToken(refreshToken) },
+              {
+                $pull: {
+                  refreshTokens: { tokenHash: hashToken(refreshToken) },
+                },
+              },
+            );
 
-const decoded = jwt.verify(token,envConfig.JWT_SECRET)
+            res.clearCookie("refreshToken", {
+              httpOnly: true,
+              secure: envConfig.IS_PROD,
+              sameSite: envConfig.IS_PROD ? "lax" : "none",
+              path: "/",
+            });
+          }
 
-req.user = decoded
+          return res.badRequest({
+            message: "User not found",
+            statusCode: 400,
+          });
+        }
 
-next()
+        if (allowedRoles && !allowedRoles.includes(user.role)) {
+          return res.forbidden({
+            message: "You do not have permission to access this resource",
+          });
+        }
 
-}catch(error){
+        req.user = user;
+      } catch (error) {
+        if (error instanceof jwt.TokenExpiredError) {
+          throw new JwtExpiredError("Session expired. Please reload.");
+        }
+        return next(error);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
 
-res.status(401).json({
-message:"Invalid token"
-})
 
-}
-
-}
+export default authenticate;
