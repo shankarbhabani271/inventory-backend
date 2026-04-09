@@ -3,6 +3,7 @@ import express, { Request, Response as ExpressResponse } from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { accessLoggerMiddleware } from "$/middlewares/accessLogger.middleware.js";
+import userDetailsRoutes from "./routes/userdetails.routes.js";
 
 // import RootRouter from "./routes/Routes";
 import { createServer } from "node:http";
@@ -50,7 +51,7 @@ app.use(accessLoggerMiddleware);
 
 app.use("/api", RootRouter);
 
-
+app.use("/api", userDetailsRoutes);
 app.use("/api/products", productRoutes);
 
 app.use(notFoundMiddleware);

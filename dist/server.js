@@ -1,20 +1,25 @@
 import cookieParser from 'cookie-parser';
-import express, { Router } from 'express';
+import express2, { Router } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import morgan from 'morgan';
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
-import { createServer } from 'http';
 import mongoose3, { Schema } from 'mongoose';
+import { createServer } from 'http';
+<<<<<<< HEAD
+import mongoose3, { Schema } from 'mongoose';
+=======
+>>>>>>> 8bc22c742d876745a75425973d20bf9ced3dea15
 import { z, ZodError } from 'zod';
 import dotenv from 'dotenv';
 import os from 'os';
 import { v4 } from 'uuid';
 import cors from 'cors';
-import bcrypt from 'bcryptjs';
-import nodemailer from 'nodemailer';
+import bcrypt from 'bcrypt';
+import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 // src/server.ts
 var LOG_DIR = path.resolve(process.cwd(), "logs");
@@ -81,6 +86,72 @@ var accessLoggerMiddleware = morgan(
     }
   }
 );
+var userDetailsSchema = new mongoose3.Schema(
+  {
+    name: {
+      type: String,
+      // fixed typo (tyep → type)
+      required: true
+    },
+    phone: {
+      type: String,
+      unique: true,
+      required: true
+    },
+    email: {
+      type: String,
+      unique: true,
+      required: true
+    },
+    company: {
+      type: String
+    },
+    description: {
+      type: String
+    }
+  },
+  { timestamps: true }
+  // moved outside properly
+);
+var userdetails_model_default = mongoose3.model("UserDetails", userDetailsSchema);
+
+// src/controllers/userdetails.controller.ts
+var createUserDetails = async (req, res) => {
+  try {
+    const user = new userdetails_model_default(req.body);
+    await user.save();
+    res.status(201).json({
+      message: "Saved successfully"
+    });
+  } catch (error) {
+    console.log(error);
+    if (error.code === 11e3) {
+      return res.status(400).json({
+        message: "Email or phone already exists"
+      });
+    }
+    res.status(500).json({
+      message: "Error saving user details"
+    });
+  }
+};
+var getUserDetails = async (req, res) => {
+  try {
+    const users = await userdetails_model_default.find().sort({ createdAt: -1 });
+    res.status(200).json(users);
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      message: "Error fetching users"
+    });
+  }
+};
+
+// src/routes/userdetails.routes.ts
+var router = express2.Router();
+router.post("/userdetails", createUserDetails);
+router.get("/userdetails", getUserDetails);
+var userdetails_routes_default = router;
 var productSchema = new Schema(
   {
     name: {
@@ -129,12 +200,19 @@ var variantSchema = new mongoose3.Schema(
       ref: "Product",
       required: true
     },
+<<<<<<< HEAD
     attributes: [
       {
         key: String,
         value: String
       }
     ],
+=======
+    attributes: {
+      type: mongoose3.Schema.Types.Mixed,
+      default: {}
+    },
+>>>>>>> 8bc22c742d876745a75425973d20bf9ced3dea15
     attributesKey: {
       type: String,
       required: true
@@ -494,6 +572,11 @@ var ValidationError = class extends AppError {
     };
   }
 };
+var JwtExpiredError = class extends AppError {
+  constructor(message) {
+    super("JWT_EXPIRED_ERROR", message);
+  }
+};
 var notFoundMiddleware = (req, res) => {
   logger.warn({
     event: "route_not_found",
@@ -687,24 +770,89 @@ var connectDB = async () => {
   }
 };
 var db_config_default = connectDB;
+<<<<<<< HEAD
 var userSchema = new mongoose3.Schema(
+=======
+
+// src/constants/user.constant.ts
+var USER_STATUS = /* @__PURE__ */ ((USER_STATUS2) => {
+  USER_STATUS2["ACTIVE"] = "ACTIVE";
+  USER_STATUS2["SUSPENDED"] = "SUSPENDED";
+  return USER_STATUS2;
+})(USER_STATUS || {});
+var USER_ROLE = /* @__PURE__ */ ((USER_ROLE2) => {
+  USER_ROLE2["SUPER_ADMIN"] = "SUPER_ADMIN";
+  USER_ROLE2["USER"] = "USER";
+  return USER_ROLE2;
+})(USER_ROLE || {});
+var ACCESS_TOKEN_TTL = "1d";
+var REFRESH_TOKEN_TTL = "15d";
+var generateAccessToken = (userId) => {
+  return jwt.sign({ sub: userId }, env_config_default.JWT_SECRET, {
+    expiresIn: ACCESS_TOKEN_TTL
+  });
+};
+var generateRefreshToken = (userId) => {
+  return jwt.sign({ sub: userId }, env_config_default.JWT_REFRESH_SECRET, {
+    expiresIn: REFRESH_TOKEN_TTL
+  });
+};
+var hashToken = (token) => {
+  return crypto.createHash("sha256").update(token).digest("hex");
+};
+var verifyToken = ({
+  token,
+  type
+}) => {
+  const secret = env_config_default.JWT_SECRET ;
+  if (token) {
+    return jwt.verify(token, secret);
+  }
+};
+var refreshTokenSchema = new Schema(
+>>>>>>> 8bc22c742d876745a75425973d20bf9ced3dea15
   {
+    tokenHash: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now },
+    expiresAt: { type: Date, required: true }
+  },
+  { _id: false }
+);
+var userSchema = new Schema(
+  {
+    name: String,
+    phone: { type: String },
     email: {
       type: String,
       required: true,
-      unique: true
+      trim: true,
+      lowercase: true,
+      index: { unique: true }
     },
-    password: {
+    password: { type: String, required: true },
+    role: {
       type: String,
-      required: true,
-      select: false
+      enum: Object.values(USER_ROLE),
+      default: "USER" /* USER */
+    },
+    userStatus: {
+      type: String,
+      enum: Object.values(USER_STATUS),
+      default: "ACTIVE" /* ACTIVE */
+    },
+    refreshTokens: {
+      type: [refreshTokenSchema],
+      default: []
+    },
+    lastLogin: {
+      type: Date,
+      default: Date.now
     }
   },
-  {
-    timestamps: true
-  }
+  { timestamps: true }
 );
 var UserModel = mongoose3.model("User", userSchema);
+<<<<<<< HEAD
 var userModel_default = UserModel;
 var otpSchema = new mongoose3.Schema({
   email: {
@@ -722,70 +870,355 @@ var otpSchema = new mongoose3.Schema({
 });
 var otpModel_default = mongoose3.model("OTP", otpSchema);
 var registerUser = async (req, res, next) => {
+=======
+var otpSchema = new Schema(
+  {
+    email: { type: String, required: true, index: true },
+    organization: { type: String },
+    otpHash: { type: String, required: true },
+    expiresAt: { type: Date, required: true },
+    attempts: { type: Number, default: 0 }
+  },
+  { timestamps: true }
+);
+var OtpModel = mongoose3.model("otp", otpSchema);
+
+// src/controllers/auth.controller.ts
+var sendOtp = async (req, res, next) => {
+>>>>>>> 8bc22c742d876745a75425973d20bf9ced3dea15
   try {
-    const { email, password, otp } = req.body;
-    const otpData = await otpModel_default.findOne({ email, otp });
-    if (!otpData) {
-      res.status(400).json({
-        message: "Invalid OTP"
-      });
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ message: "Email is required" });
       return;
     }
-    if (otpData.expiresAt < /* @__PURE__ */ new Date()) {
-      res.status(400).json({
-        message: "OTP expired"
-      });
+    const existingOtp = await OtpModel.findOne({ email });
+    if (existingOtp && existingOtp.expiresAt > /* @__PURE__ */ new Date()) {
+      res.status(429).json({ message: "OTP already sent. Try again later." });
+      return;
+    }
+    const otp = Math.floor(1e5 + Math.random() * 9e5).toString();
+    const otpHash = await bcrypt.hash(otp, 10);
+    await OtpModel.findOneAndUpdate(
+      { email, organization: "" },
+      {
+        otpHash,
+        attempts: 0,
+        expiresAt: new Date(Date.now() + 5 * 60 * 1e3)
+      },
+      { upsert: true }
+    );
+    console.log("OTP:", otp);
+    res.success({ message: "If the email exists, OTP has been sent" });
+  } catch (error) {
+    next(error);
+  }
+};
+var forgotPasswordController = async (req, res, next) => {
+  try {
+    const { email, otp, password } = req.body;
+    if (!email || !otp || !password) {
+      res.status(400).json({ message: "Email, OTP and password are required" });
+      return;
+    }
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      res.status(400).json({ message: "Invalid OTP or expired" });
+      return;
+    }
+    const otpRecord = await OtpModel.findOne({ email });
+    if (!otpRecord || otpRecord.expiresAt < /* @__PURE__ */ new Date()) {
+      await OtpModel.deleteOne({ email });
+      res.status(400).json({ message: "OTP expired or invalid" });
+      return;
+    }
+    const isValidOtp = await bcrypt.compare(otp, otpRecord.otpHash);
+    if (!isValidOtp) {
+      otpRecord.attempts += 1;
+      await otpRecord.save();
+      if (otpRecord.attempts >= 5) {
+        await OtpModel.deleteOne({ email });
+        res.status(400).json({ message: "Too many attempts. OTP expired." });
+        return;
+      }
+      res.status(400).json({ message: "Invalid OTP" });
+      return;
+    }
+    await OtpModel.deleteOne({ email });
+    user.password = await bcrypt.hash(password, 10);
+    user.refreshTokens.splice(0, user.refreshTokens.length);
+    await user.save();
+    res.success({ message: "Password reset successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+var signInController = async (req, res, next) => {
+  try {
+    const { email, password } = req.body;
+    const user = await UserModel.findOne({ email });
+    if (!user) {
+      res.badRequest({ message: "Invalid credentials email not found" });
+      return;
+    }
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) {
+      res.badRequest({ message: "Invalid credentials pass issue" });
+      return;
+    }
+    if (user.userStatus === "SUSPENDED" /* SUSPENDED */) {
+      res.badRequest({ message: "You are suspended, contact admin" });
+      return;
+    }
+    const accessToken = generateAccessToken(user._id.toString());
+    const refreshToken = generateRefreshToken(user._id.toString());
+    user.refreshTokens.push({
+      tokenHash: hashToken(refreshToken),
+      createdAt: /* @__PURE__ */ new Date(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1e3)
+    });
+    user.lastLogin = /* @__PURE__ */ new Date();
+    await user.save();
+    const isProd = env_config_default.IS_PROD;
+    const cookieName = "RefreshToken";
+    res.cookie(cookieName, refreshToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 7 * 24 * 60 * 60 * 1e3
+    });
+    res.success({
+      data: { accessToken },
+      message: "User logged in successfully"
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+var signUpController = async (req, res, next) => {
+  try {
+    const { name, phone, email, password } = req.body;
+    const existingUser = await UserModel.findOne({ email }).lean();
+    if (existingUser) {
+      res.status(400).json({ message: "User already exists" });
       return;
     }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const user = await userModel_default.create({
+    const newUser = await UserModel.create({
+      name,
+      phone,
       email,
       password: hashedPassword
     });
-    await otpModel_default.deleteMany({ email });
-    res.status(201).json({
-      message: "User registered successfully",
-      user
+    const { password: _, ...userWithoutPassword } = newUser.toObject();
+    res.created({
+      data: userWithoutPassword,
+      message: "User Created Successfully"
     });
-  } catch (err) {
-    res.status(500).json({
-      error: err.message
-    });
+    return;
+  } catch (error) {
+    next(error);
   }
 };
-var loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    const user = await userModel_default.findOne({ email });
-    if (!user) {
-      res.status(400).json({
-        message: "User not found"
-      });
-      return;
-    }
-    const match = await bcrypt.compare(password, user.password);
-    if (!match) {
-      res.status(400).json({
-        message: "Invalid password"
-      });
-      return;
-    }
-    res.status(200).json({
-      message: "Login successful",
-      user
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: err.message
+var checkCookiesEnabled = (req, res) => {
+  const hasCookie = Boolean(req.cookies?.cookie_test);
+  if (!hasCookie) {
+    return res.status(401).json({
+      success: false,
+      code: "COOKIES_DISABLED",
+      message: "Cookies are required for authentication"
     });
   }
-};
-var logoutUser = async (req, res) => {
-  res.status(200).json({
-    message: "Logout successful"
+  return res.success({
+    message: "Cookies enabled"
   });
 };
-var signUpSchema = {
+var setCookieTest = (_req, res) => {
+  res.cookie("cookie_test", "1", {
+    httpOnly: true,
+    secure: env_config_default.IS_PROD,
+    sameSite: env_config_default.IS_PROD ? "lax" : "none",
+    path: "/",
+    maxAge: 7 * 24 * 60 * 60 * 1e3
+  });
+  return res.success({
+    message: "Test cookie set successfully"
+  });
+};
+var refreshTokenController = async (req, res, next) => {
+  try {
+    const cookieName = "RefreshToken";
+    const refreshToken = req.cookies?.[cookieName];
+    if (!refreshToken) {
+      res.unauthorized({ message: "Unauthenticated" });
+      return;
+    }
+    let payload;
+    try {
+      payload = jwt.verify(refreshToken, env_config_default.JWT_REFRESH_SECRET);
+    } catch {
+      res.unauthorized({ message: "Invalid refresh token" });
+      return;
+    }
+    const tokenHash = hashToken(refreshToken);
+    const now = /* @__PURE__ */ new Date();
+    const user = await UserModel.findOne({
+      _id: payload.sub,
+      refreshTokens: {
+        $elemMatch: {
+          tokenHash,
+          expiresAt: { $gt: now }
+        }
+      }
+    });
+    if (!user) {
+      res.unauthorized({ message: "Invalid refresh token" });
+      return;
+    }
+    res.success({
+      message: "Token refreshed",
+      data: {
+        accessToken: generateAccessToken(user._id.toString())
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+var logoutController = async (req, res, next) => {
+  try {
+    const token = req.cookies?.RefreshToken;
+    if (token) {
+      await UserModel.updateOne(
+        { "refreshTokens.tokenHash": hashToken(token) },
+        { $pull: { refreshTokens: { tokenHash: hashToken(token) } } }
+      );
+    }
+    const cookieName = "RefreshToken";
+    res.clearCookie(cookieName, {
+      httpOnly: true,
+      secure: env_config_default.IS_PROD,
+      sameSite: "lax",
+      path: "/"
+    });
+    res.success({ message: "Logged out successfully" });
+  } catch (error) {
+    next(error);
+  }
+};
+var updateProfileDetails = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user._id) {
+      res.unauthorized({ message: "Unauthorized" });
+      return;
+    }
+    const { name, phone } = req.body;
+    const user = await UserModel.findByIdAndUpdate(
+      req.user._id,
+      {
+        ...name && { name },
+        ...phone && { phone }
+        // phone is string now
+      },
+      {
+        new: true,
+        runValidators: true,
+        select: "-password -refreshTokens"
+      }
+    );
+    if (!user) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+    res.success({
+      data: user,
+      message: "Profile updated successfully"
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+var authenticate = (roles = []) => {
+  const allowedRoles = roles?.length ? [...roles, "SUPER_ADMIN" /* SUPER_ADMIN */] : null;
+  return async (req, res, next) => {
+    try {
+      const token = req.headers.authorization?.split(" ")[1];
+      const cookieName = "RefreshToken";
+      const refreshToken = req.cookies?.[cookieName];
+      if (!token && refreshToken) {
+        res.unauthorized({
+          message: "Session expired. Please reload."
+        });
+        return;
+      }
+      if (!token) {
+        res.unauthorized({
+          message: "Token not found"
+        });
+        return;
+      }
+      try {
+        const decoded = verifyToken({
+          token,
+          type: "ACCESS" /* ACCESS */
+        });
+        const user = await UserModel.findById(decoded?.sub).lean();
+        if (!user) {
+          if (refreshToken) {
+            await UserModel.updateOne(
+              { "refreshTokens.tokenHash": hashToken(refreshToken) },
+              {
+                $pull: {
+                  refreshTokens: { tokenHash: hashToken(refreshToken) }
+                }
+              }
+            );
+            res.clearCookie("refreshToken", {
+              httpOnly: true,
+              secure: env_config_default.IS_PROD,
+              sameSite: env_config_default.IS_PROD ? "lax" : "none",
+              path: "/"
+            });
+          }
+          return res.badRequest({
+            message: "User not found",
+            statusCode: 400
+          });
+        }
+        if (allowedRoles && !allowedRoles.includes(user.role)) {
+          return res.forbidden({
+            message: "You do not have permission to access this resource"
+          });
+        }
+        req.user = user;
+      } catch (error) {
+        if (error instanceof jwt.TokenExpiredError) {
+          throw new JwtExpiredError("Session expired. Please reload.");
+        }
+        return next(error);
+      }
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+};
+var auth_middleware_default = authenticate;
+
+// src/functions/CreateZodSchema.ts
+var CreateZodSchema2 = ({
+  body,
+  params,
+  query
+}) => {
+  return {
+    body,
+    params,
+    query
+  };
+};
+var signUpSchema = CreateZodSchema2({
   body: z.object({
     name: z.string({ message: "Name is required" }).min(3, "Name must be at least 3 characters long").nonempty("Name is required"),
     password: z.string({ message: "Password is required" }).min(8, "Password must be at least 8 characters long.").refine((password) => /[A-Z]/.test(password), {
@@ -795,98 +1228,75 @@ var signUpSchema = {
     }).refine((password) => /\d/.test(password), {
       message: "Password must contain at least one number."
     }),
+    // role: z
+    //   .enum(USER_ROLE, {
+    //     message: `role must be ${Object.keys(USER_ROLE).join(", ")}`,
+    //   })
+    //   ?.optional(),
     email: z.string({ message: "Email is required" }).email({ message: "Invalid email format" }),
-    phone: z.number({ message: "Phone number is required" }).min(10, "Phone number must be at least 10 digits long"),
-    userType: z.enum(["ADMIN", "SUPER_ADMIN"], {
-      message: "userType must be ADMIN or SUPER_ADMIN"
-    })
+    phone: z.number({ message: "Phone number must be a number" }).positive("Phone number must be a positive number").min(1e9, "Phone number must be exactly 10 digits").max(9999999999, "Phone number must be exactly 10 digits")
   })
-};
-({
+});
+var signInSchema = CreateZodSchema2({
   body: z.object({
     email: z.string({ message: "Email is required" }).email(),
-    password: z.string({ message: "Password is required" }).min(8, "Password must be at least 8 characters long.").refine((password) => /[A-Z]/.test(password), {
-      message: "Password must contain at least one uppercase letter."
-    }).refine((password) => /[a-z]/.test(password), {
-      message: "Password must contain at least one lowercase letter."
-    }).refine((password) => /\d/.test(password), {
-      message: "Password must contain at least one number."
-    })
+    password: z.string({ message: "Password is required" })
   })
 });
-console.log("EMAIL:", env_config_default.NODE_MAILER_EMAIL);
-console.log("PASS:", env_config_default.NODE_MAILER_PASS);
-var transporter = nodemailer.createTransport({
-  host: env_config_default.SMTP_HOST,
-  service: "gmail",
-  port: 465,
-  secure: true,
-  auth: {
-    user: env_config_default.NODE_MAILER_EMAIL,
-    pass: env_config_default.NODE_MAILER_PASS
-  },
-  logger: false
+var forgotSchema = CreateZodSchema2({
+  body: z.object({
+    email: z.string({ message: "Email is required" }).email({ message: "Invalid email format" }),
+    password: z.string({ message: "Password is required" }),
+    otp: z.number({ message: "OTP Must be a number" }).min(6, "OTP must be 6 digits")
+  })
 });
-transporter.verify((error, success) => {
-  if (success) {
-    console.info("Nodemailer is ready to send emails");
-  }
-  if (error) {
-    console.error("Nodemailer configuration error:", error);
-  } else {
-    console.info("Nodemailer is ready to send emails");
-  }
+var otpSchema2 = CreateZodSchema2({
+  body: z.object({
+    email: z.string({ message: "Email is required" }).email()
+  })
 });
-var email_config_default = transporter;
+CreateZodSchema2({
+  body: z.object({
+    name: z.string({ message: "Name is required" }).min(3, "Name must be at least 3 characters long").optional(),
+    phone: z.number({ message: "Phone number must be a number" }).positive("Phone number must be a positive number").min(1e9, "Phone number must be exactly 10 digits").max(9999999999, "Phone number must be exactly 10 digits").optional()
+  })
+});
 
-// src/controller/otp.controller.ts
-var sendOtp = async (req, res, next) => {
-  try {
-    console.log("object", "+++++++++");
-    const { email } = req.body;
-    const otp = Math.floor(1e5 + Math.random() * 9e5).toString();
-    await otpModel_default.create({
-      email,
-      otp,
-      expiresAt: new Date(Date.now() + 5 * 60 * 1e3)
-    });
-    email_config_default.sendMail({
-      from: env_config_default.NODE_MAILER_EMAIL,
-      to: email,
-      subject: "Your OTP Code",
-      text: `Your OTP code is ${otp}. It will expire in 5 minutes.`
-    });
-    res.success({
-      message: "OTP sent successfully",
-      data: { otp }
-    });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// src/routes/User.route.ts
-var userouter = Router();
-userouter.post("/register", validateRequest(signUpSchema), registerUser);
-userouter.post("/send-otp", sendOtp);
-userouter.post("/login", loginUser);
-userouter.post("/logout", logoutUser);
-var User_route_default = userouter;
+// src/routes/auth.route.ts
+var authRouter = Router();
+authRouter.post("/login", validateRequest(signInSchema), signInController);
+authRouter.post("/signUp", validateRequest(signUpSchema), signUpController);
+authRouter.post("/refresh", refreshTokenController);
+authRouter.post("/check-cookies", checkCookiesEnabled);
+authRouter.post("/set-check-cookies", setCookieTest);
+authRouter.post("/logout", logoutController);
+authRouter.post("/generate-otp", validateRequest(otpSchema2), sendOtp);
+authRouter.patch(
+  "/forgot",
+  validateRequest(forgotSchema),
+  forgotPasswordController
+);
+authRouter.patch(
+  "/update-profile",
+  auth_middleware_default(),
+  updateProfileDetails
+);
+var auth_route_default = authRouter;
 var RootRouter = Router();
-RootRouter.use("/auth", User_route_default);
+RootRouter.use("/auth", auth_route_default);
 RootRouter.use("/product", product_routes_default);
 var routes_default = RootRouter;
 
 // src/server.ts
 var __filename$1 = fileURLToPath(import.meta.url);
 var __dirname$1 = path.dirname(__filename$1);
-var app = express();
+var app = express2();
 var publicDir = path.join(__dirname$1, "..", "public");
-app.use(express.static(publicDir));
+app.use(express2.static(publicDir));
 var server = createServer(app);
 app.use(response_middleware_default);
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express2.json());
+app.use(express2.urlencoded({ extended: true }));
 app.use(cookieParser());
 applyCores({ app });
 var initialize = () => {
@@ -901,6 +1311,7 @@ app.set("trust proxy", true);
 app.use(requestContextMiddleware);
 app.use(accessLoggerMiddleware);
 app.use("/api", routes_default);
+app.use("/api", userdetails_routes_default);
 app.use("/api/products", product_routes_default);
 app.use(notFoundMiddleware);
 app.use(errorHandler);

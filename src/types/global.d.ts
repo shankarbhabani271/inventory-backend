@@ -1,3 +1,4 @@
+import { TUser } from "$/models/userModel.ts";
 
 
 declare global {
@@ -38,7 +39,7 @@ declare global {
     }
 
     interface Request {
-      // user?: IUser;
+      user?: TUser;
       requestId: string;
       // user?: {
       //   name: string;
