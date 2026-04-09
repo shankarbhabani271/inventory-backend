@@ -7,7 +7,7 @@ import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
 import { createServer } from 'http';
-import mongoose2, { Schema } from 'mongoose';
+import mongoose3, { Schema } from 'mongoose';
 import { z, ZodError } from 'zod';
 import dotenv from 'dotenv';
 import os from 'os';
@@ -96,11 +96,17 @@ var productSchema = new Schema(
       type: String,
       trim: true
     },
-    // category: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "Category",
-    //   required: true
-    // },
+    category: {
+      type: mongoose3.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true
+    },
+    variants: [
+      {
+        type: mongoose3.Schema.Types.ObjectId,
+        ref: "Variant"
+      }
+    ],
     // image:
     // {
     //   url: String,
@@ -115,18 +121,20 @@ var productSchema = new Schema(
     timestamps: true
   }
 );
-var ProductModel = mongoose2.model("Product", productSchema);
-var variantSchema = new mongoose2.Schema(
+var ProductModel = mongoose3.model("Product", productSchema);
+var variantSchema = new mongoose3.Schema(
   {
     product: {
-      type: mongoose2.Schema.Types.ObjectId,
+      type: mongoose3.Schema.Types.ObjectId,
       ref: "Product",
       required: true
     },
-    attributes: {
-      type: mongoose2.Schema.Types.Mixed,
-      default: {}
-    },
+    attributes: [
+      {
+        key: String,
+        value: String
+      }
+    ],
     attributesKey: {
       type: String,
       required: true
@@ -149,7 +157,7 @@ var variantSchema = new mongoose2.Schema(
   },
   { timestamps: true }
 );
-var VariantModel = mongoose2.model("Variant", variantSchema);
+var VariantModel = mongoose3.model("Variant", variantSchema);
 
 // src/controller/product.controller.ts
 var createProduct = async (req, res, next) => {
@@ -180,21 +188,27 @@ var createProduct = async (req, res, next) => {
     next(error);
   }
 };
-var getAllProducts = async (_req, res) => {
+var getAllProducts = async (req, res) => {
   try {
-    const products = await ProductModel.find();
-    const PopulatedProd = await Promise.all(
-      products.map(async (product) => {
-        const variants = await VariantModel.find({ product: product._id });
-        return {
-          product,
-          variants
-        };
-      })
-    );
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 10;
+    const skip = (page - 1) * limit;
+    const total = await ProductModel.countDocuments();
+    const PopulatedProducts = await ProductModel.find().populate("category").populate("variants").skip(skip).limit(limit);
+    const totalPages = Math.ceil(total / limit);
+    const meta = {
+      page,
+      limit,
+      total,
+      nextPages: page < totalPages ? page + 1 : null,
+      prevPage: page > 1 ? page - 1 : null
+    };
     res.success({
       message: "Products retrieved successfully",
-      data: PopulatedProd
+      data: {
+        product: PopulatedProducts,
+        meta
+      }
     });
   } catch (error) {
     res.status(500).json({
@@ -226,7 +240,11 @@ var getSingleProduct = async (req, res) => {
 };
 var updateProduct = async (req, res) => {
   try {
-    const product = await ProductModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const product = await ProductModel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -646,19 +664,19 @@ var applyCores = ({ app: app2 }) => {
   app2.options(/.*/, cors());
 };
 var connectDB = async () => {
-  if (mongoose2.connection.readyState === 1) {
+  if (mongoose3.connection.readyState === 1) {
     console.info("MongoDB is already connected.");
     return;
   }
   try {
-    await mongoose2.connect(env_config_default.DB_URI);
+    await mongoose3.connect(env_config_default.DB_URI);
     console.log("Connected to MongoDB");
     console.info("Connected to MongoDB");
-    mongoose2.connection.on("disconnected", () => {
+    mongoose3.connection.on("disconnected", () => {
       console.log("Lost MongoDB connection");
       console.warn("Lost MongoDB connection");
     });
-    mongoose2.connection.on("reconnected", () => {
+    mongoose3.connection.on("reconnected", () => {
       console.log("Reconnected to MongoDB");
       console.info("Reconnected to MongoDB");
     });
@@ -669,7 +687,7 @@ var connectDB = async () => {
   }
 };
 var db_config_default = connectDB;
-var userSchema = new mongoose2.Schema(
+var userSchema = new mongoose3.Schema(
   {
     email: {
       type: String,
@@ -686,9 +704,9 @@ var userSchema = new mongoose2.Schema(
     timestamps: true
   }
 );
-var UserModel = mongoose2.model("User", userSchema);
+var UserModel = mongoose3.model("User", userSchema);
 var userModel_default = UserModel;
-var otpSchema = new mongoose2.Schema({
+var otpSchema = new mongoose3.Schema({
   email: {
     type: String,
     required: true
@@ -702,7 +720,7 @@ var otpSchema = new mongoose2.Schema({
     required: true
   }
 });
-var otpModel_default = mongoose2.model("OTP", otpSchema);
+var otpModel_default = mongoose3.model("OTP", otpSchema);
 var registerUser = async (req, res, next) => {
   try {
     const { email, password, otp } = req.body;

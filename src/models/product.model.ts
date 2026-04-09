@@ -2,6 +2,7 @@ import mongoose, { HydratedDocument, InferSchemaType, Schema } from "mongoose";
 
 const productSchema = new Schema(
   {
+    
     name: {
       type: String,
       required: true,
@@ -17,11 +18,18 @@ const productSchema = new Schema(
       type: String,
       trim: true,
     },
-    // category: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "Category",
-    //   required: true
-    // },
+    category: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Category",
+      required: true
+    },
+    variants: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Variant"
+    }
+  ],
+    
     // image:
     // {
     //   url: String,

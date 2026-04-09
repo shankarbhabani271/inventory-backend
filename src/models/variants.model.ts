@@ -8,10 +8,12 @@ const variantSchema = new mongoose.Schema(
       required: true
     },
 
-    attributes: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {}
-    },
+    attributes: [
+      {
+        key:String,
+        value:String,
+      }
+    ],
 
     attributesKey: {
       type: String,

@@ -18,7 +18,7 @@ export const createVariant = async (req: Request, res: Response, next: NextFunct
 // GET ALL VARIANTS
 export const getAllVariant = async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const variant = await VariantModel.find().populate("variant");
+    const variant = await VariantModel.find().populate("Product");
 
     res.success({
       message: "variant retrieved successfully",

@@ -18,7 +18,7 @@ export const createCategory = async (req: Request, res: Response, next: NextFunc
 // GET ALL PRODUCTS
 export const getAllCategory = async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    const category = await CategoryModel.find().populate("category");
+    const category = await CategoryModel.find()
 
     res.success({
       message: "category retrieved successfully",
@@ -33,7 +33,7 @@ export const getAllCategory = async (_req: Request, res: Response, next: NextFun
 // GET SINGLE CATEGORY
 export const getSinglecategory = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const product = await CategoryModel.findById(req.params.id).populate("category");
+    const product = await CategoryModel.findById(req.params.id)
 
     if (!product) {
       return res.success({
