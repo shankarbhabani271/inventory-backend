@@ -1,12 +1,12 @@
 import cookieParser from 'cookie-parser';
-import express2, { Router } from 'express';
+import express4, { Router } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import morgan from 'morgan';
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
 import fs from 'fs';
-import mongoose3, { Schema } from 'mongoose';
+import mongoose2, { Schema } from 'mongoose';
 import { createServer } from 'http';
 import { z, ZodError } from 'zod';
 import dotenv from 'dotenv';
@@ -82,7 +82,7 @@ var accessLoggerMiddleware = morgan(
     }
   }
 );
-var userDetailsSchema = new mongoose3.Schema(
+var userDetailsSchema = new mongoose2.Schema(
   {
     name: {
       type: String,
@@ -109,7 +109,7 @@ var userDetailsSchema = new mongoose3.Schema(
   { timestamps: true }
   // moved outside properly
 );
-var userdetails_model_default = mongoose3.model("UserDetails", userDetailsSchema);
+var userdetails_model_default = mongoose2.model("UserDetails", userDetailsSchema);
 
 // src/controllers/userdetails.controller.ts
 var createUserDetails = async (req, res) => {
@@ -144,54 +144,19 @@ var getUserDetails = async (req, res) => {
 };
 
 // src/routes/userdetails.routes.ts
-var router = express2.Router();
+var router = express4.Router();
 router.post("/userdetails", createUserDetails);
 router.get("/userdetails", getUserDetails);
 var userdetails_routes_default = router;
-var productSchema = new Schema(
-  {
-    name: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    description: {
-      type: String,
-      trim: true
-    },
-    brand: {
-      type: String,
-      trim: true
-    },
-    // category: {
-    //   type: mongoose.Schema.Types.ObjectId,
-    //   ref: "Category",
-    //   required: true
-    // },
-    // image:
-    // {
-    //   url: String,
-    //   publicId: String,
-    // },
-    isActive: {
-      type: Boolean,
-      default: true
-    }
-  },
-  {
-    timestamps: true
-  }
-);
-var ProductModel = mongoose3.model("Product", productSchema);
-var variantSchema = new mongoose3.Schema(
+var variantSchema = new mongoose2.Schema(
   {
     product: {
-      type: mongoose3.Schema.Types.ObjectId,
+      type: mongoose2.Schema.Types.ObjectId,
       ref: "Product",
       required: true
     },
     attributes: {
-      type: mongoose3.Schema.Types.Mixed,
+      type: mongoose2.Schema.Types.Mixed,
       default: {}
     },
     attributesKey: {
@@ -216,29 +181,27 @@ var variantSchema = new mongoose3.Schema(
   },
   { timestamps: true }
 );
-var VariantModel = mongoose3.model("Variant", variantSchema);
+var VariantModel = mongoose2.model("Variant", variantSchema);
 
 // src/controller/product.controller.ts
 var createProduct = async (req, res, next) => {
   try {
     const {
-      variants,
+      variants = [],
       prodDetails
     } = req.body;
     const product = await ProductModel.create({ ...prodDetails });
-    const rex = variants.map((item) => {
+    const preparedVariants = variants.map((item) => {
       const sku = `${prodDetails.name.substring(0, 3).toUpperCase()}-${Math.floor(Math.random() * 1e4)}`;
       return {
         ...item,
-        sku
+        sku,
+        product: product._id
       };
     });
-    rex.forEach(async (variant) => {
-      await VariantModel.create({
-        ...variant,
-        product: product._id
-      });
-    });
+    await Promise.all(
+      preparedVariants.map((variant) => VariantModel.create(variant))
+    );
     res.success({
       message: "Product created successfully",
       data: product
@@ -249,19 +212,18 @@ var createProduct = async (req, res, next) => {
 };
 var getAllProducts = async (_req, res) => {
   try {
-    const products = await ProductModel.find();
-    const PopulatedProd = await Promise.all(
-      products.map(async (product) => {
-        const variants = await VariantModel.find({ product: product._id });
-        return {
-          product,
-          variants
-        };
-      })
-    );
+    const products = await ProductModel.find().lean();
+    const productIds = products.map((p) => p._id);
+    const variants = await VariantModel.find({
+      product: { $in: productIds }
+    }).lean();
+    const result = products.map((product) => ({
+      product,
+      variants: variants.filter((v) => v.product.toString() === product._id.toString())
+    }));
     res.success({
       message: "Products retrieved successfully",
-      data: PopulatedProd
+      data: result
     });
   } catch (error) {
     res.status(500).json({
@@ -272,7 +234,7 @@ var getAllProducts = async (_req, res) => {
 };
 var getSingleProduct = async (req, res) => {
   try {
-    const product = await ProductModel.findById(req.params.id).populate("category").populate("variants");
+    const product = await ProductModel.findById(req.params.id).populate("variants").lean();
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -293,7 +255,11 @@ var getSingleProduct = async (req, res) => {
 };
 var updateProduct = async (req, res) => {
   try {
-    const product = await ProductModel.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    const product = await ProductModel.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -301,10 +267,12 @@ var updateProduct = async (req, res) => {
       });
     }
     if (req.body.variants) {
-      await VariantModel.updateMany(
-        { product: req.params.id },
-        { $set: req.body.variants }
-      );
+      await VariantModel.deleteMany({ product: req.params.id });
+      const newVariants = req.body.variants.map((v) => ({
+        ...v,
+        product: req.params.id
+      }));
+      await VariantModel.insertMany(newVariants);
     }
     return res.status(200).json({
       success: true,
@@ -327,9 +295,7 @@ var deleteProduct = async (req, res) => {
         message: "Product not found"
       });
     }
-    if (req.params.id) {
-      await VariantModel.deleteMany({ product: req.params.id });
-    }
+    await VariantModel.deleteMany({ product: req.params.id });
     return res.status(200).json({
       success: true,
       message: "Product deleted successfully"
@@ -401,6 +367,83 @@ productRoutes.get("/:id", getSingleProduct);
 productRoutes.put("/:id", updateProduct);
 productRoutes.delete("/:id", deleteProduct);
 var product_routes_default = productRoutes;
+var uservendorschema = new mongoose2.Schema(
+  {
+    name: {
+      type: String,
+      required: true
+    },
+    phone: {
+      type: String,
+      required: true
+    },
+    secondphone: {
+      type: String,
+      required: true
+    },
+    email: {
+      type: String,
+      unique: true,
+      required: true
+    },
+    primaryaddress: {
+      type: String,
+      required: true
+    }
+  },
+  { timestamps: true }
+);
+var vendor_model_default = mongoose2.model("Vendor", uservendorschema);
+
+// src/controllers/vendor.controllers.ts
+var createVendor = async (req, res) => {
+  try {
+    const { name, phone, secondphone, email, primaryaddress } = req.body;
+    const existingVendor = await vendor_model_default.findOne({ email });
+    if (existingVendor) {
+      return res.status(400).json({
+        success: false,
+        message: "Vendor already exists with this email"
+      });
+    }
+    const vendor = await vendor_model_default.create({
+      name,
+      phone,
+      secondphone,
+      email,
+      primaryaddress
+    });
+    res.status(201).json({
+      success: true,
+      message: "Vendor created successfully",
+      data: vendor
+    });
+  } catch (error) {
+    console.log("CREATE ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error creating vendor",
+      error: error.message
+    });
+  }
+};
+var getVendor = async (req, res) => {
+  try {
+    const vendors = await vendor_model_default.find().sort({ createdAt: -1 });
+    res.status(200).json(vendors);
+  } catch (error) {
+    console.log("GET ERROR:", error);
+    res.status(500).json({
+      message: "Error fetching vendors"
+    });
+  }
+};
+
+// src/routes/vendor.routes.ts
+var router2 = express4.Router();
+router2.post("/create", createVendor);
+router2.get("/get", getVendor);
+var vendor_routes_default = router2;
 dotenv.config();
 var envConfig = {
   DB_URI: process.env.DB_URI || "",
@@ -718,19 +761,19 @@ var applyCores = ({ app: app2 }) => {
   app2.options(/.*/, cors());
 };
 var connectDB = async () => {
-  if (mongoose3.connection.readyState === 1) {
+  if (mongoose2.connection.readyState === 1) {
     console.info("MongoDB is already connected.");
     return;
   }
   try {
-    await mongoose3.connect(env_config_default.DB_URI);
+    await mongoose2.connect(env_config_default.DB_URI);
     console.log("Connected to MongoDB");
     console.info("Connected to MongoDB");
-    mongoose3.connection.on("disconnected", () => {
+    mongoose2.connection.on("disconnected", () => {
       console.log("Lost MongoDB connection");
       console.warn("Lost MongoDB connection");
     });
-    mongoose3.connection.on("reconnected", () => {
+    mongoose2.connection.on("reconnected", () => {
       console.log("Reconnected to MongoDB");
       console.info("Reconnected to MongoDB");
     });
@@ -818,7 +861,7 @@ var userSchema = new Schema(
   },
   { timestamps: true }
 );
-var UserModel = mongoose3.model("User", userSchema);
+var UserModel = mongoose2.model("User", userSchema);
 var otpSchema = new Schema(
   {
     email: { type: String, required: true, index: true },
@@ -829,7 +872,7 @@ var otpSchema = new Schema(
   },
   { timestamps: true }
 );
-var OtpModel = mongoose3.model("otp", otpSchema);
+var OtpModel = mongoose2.model("otp", otpSchema);
 
 // src/controllers/auth.controller.ts
 var sendOtp = async (req, res, next) => {
@@ -1233,17 +1276,279 @@ var RootRouter = Router();
 RootRouter.use("/auth", auth_route_default);
 RootRouter.use("/product", product_routes_default);
 var routes_default = RootRouter;
+var materialSchema = new mongoose2.Schema(
+  {
+    referenceId: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    date: {
+      type: String,
+      required: true
+    },
+    requester: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    department: {
+      type: String,
+      required: true
+    },
+    productDetails: {
+      type: String,
+      required: true
+    },
+    quantity: {
+      type: Number,
+      required: true
+    },
+    priority: {
+      type: String,
+      enum: ["Low", "Medium", "High", "Urgent"],
+      default: "Low"
+    },
+    // ✅ ONLY THIS STATUS (FINAL)
+    status: {
+      type: String,
+      enum: ["Pending", "Approved", "Rejected"],
+      default: "Pending"
+    }
+  },
+  { timestamps: true }
+);
+var material_model_default = mongoose2.model("Material", materialSchema);
+
+// src/controllers/material.controller.ts
+var createMaterial = async (req, res) => {
+  try {
+    const {
+      referenceId,
+      date,
+      requester,
+      department,
+      productDetails,
+      quantity,
+      priority
+    } = req.body;
+    if (!referenceId || !date || !requester || !department || !productDetails || !quantity) {
+      return res.status(400).json({
+        success: false,
+        message: "All required fields must be filled"
+      });
+    }
+    const qty = Number(quantity);
+    if (isNaN(qty) || qty <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Quantity must be a valid number"
+      });
+    }
+    const existing = await material_model_default.findOne({ referenceId });
+    if (existing) {
+      return res.status(400).json({
+        success: false,
+        message: "Reference ID already exists"
+      });
+    }
+    const material = new material_model_default({
+      referenceId,
+      date,
+      requester,
+      department,
+      productDetails,
+      quantity: qty,
+      priority: priority || "Medium",
+      status: "Pending"
+    });
+    const saved = await material.save();
+    return res.status(201).json({
+      success: true,
+      message: "Material created successfully",
+      data: saved
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var getMaterials = async (req, res) => {
+  try {
+    const { status, search } = req.query;
+    let filter = {};
+    if (status) {
+      filter.status = status;
+    }
+    if (search) {
+      filter.$or = [
+        { referenceId: { $regex: search, $options: "i" } },
+        { requester: { $regex: search, $options: "i" } }
+      ];
+    }
+    const materials = await material_model_default.find(filter).sort({ createdAt: -1 });
+    return res.status(200).json({
+      success: true,
+      count: materials.length,
+      data: materials
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var approveMaterial = async (req, res) => {
+  try {
+    const updated = await material_model_default.findByIdAndUpdate(
+      req.params.id,
+      { status: "Approved" },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Material Approved",
+      data: updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+var rejectMaterial = async (req, res) => {
+  try {
+    const updated = await material_model_default.findByIdAndUpdate(
+      req.params.id,
+      { status: "Rejected" },
+      { new: true }
+    );
+    if (!updated) {
+      return res.status(404).json({
+        success: false,
+        message: "Material not found"
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Material Rejected",
+      data: updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// src/routes/material.routes.ts
+var router3 = express4.Router();
+router3.post("/", createMaterial);
+router3.get("/", getMaterials);
+router3.put("/:id/approve", approveMaterial);
+router3.put("/:id/reject", rejectMaterial);
+var material_routes_default = router3;
+var productMenuSchema = new Schema(
+  {
+    name: { type: String, required: true },
+    optionalName: { type: String },
+    details: { type: String, required: true },
+    category: { type: String, required: true },
+    unit: { type: String, required: true },
+    stock: {
+      type: Number,
+      default: 0
+    },
+    price: { type: Number, required: true },
+    discount: { type: Number, default: 0 },
+    sizes: [{ type: String }],
+    colors: [{ type: String }],
+    image: { type: String },
+    description: { type: String }
+  },
+  { timestamps: true }
+);
+var ProductMenu = mongoose2.model(
+  "ProductMenu",
+  productMenuSchema
+);
+
+// src/controller/productmenu.controller.ts
+var createProductMenu = async (req, res) => {
+  try {
+    const product = await ProductMenu.create(req.body);
+    res.status(201).json(product);
+  } catch (err) {
+    res.status(500).json({ message: "Create failed", error: err });
+  }
+};
+var getAllProductMenu = async (req, res) => {
+  try {
+    const products = await ProductMenu.find();
+    res.json(products);
+  } catch (err) {
+    res.status(500).json({ message: "Fetch failed" });
+  }
+};
+var getSingleProductMenu = async (req, res) => {
+  try {
+    const product = await ProductMenu.findById(req.params.id);
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ message: "Fetch failed" });
+  }
+};
+var updateProductMenu = async (req, res) => {
+  try {
+    const product = await ProductMenu.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+    res.json(product);
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
+};
+var deleteProductMenu = async (req, res) => {
+  try {
+    await ProductMenu.findByIdAndDelete(req.params.id);
+    res.json({ message: "Deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed" });
+  }
+};
+
+// src/routes/productmenu.routes.ts
+var router4 = Router();
+router4.post("/", createProductMenu);
+router4.get("/", getAllProductMenu);
+router4.get("/:id", getSingleProductMenu);
+router4.put("/:id", updateProductMenu);
+router4.delete("/:id", deleteProductMenu);
+var productmenu_routes_default = router4;
 
 // src/server.ts
 var __filename$1 = fileURLToPath(import.meta.url);
 var __dirname$1 = path.dirname(__filename$1);
-var app = express2();
+var app = express4();
 var publicDir = path.join(__dirname$1, "..", "public");
-app.use(express2.static(publicDir));
+app.use(express4.static(publicDir));
 var server = createServer(app);
 app.use(response_middleware_default);
-app.use(express2.json());
-app.use(express2.urlencoded({ extended: true }));
+app.use(express4.json());
+app.use(express4.urlencoded({ extended: true }));
 app.use(cookieParser());
 applyCores({ app });
 var initialize = () => {
@@ -1260,6 +1565,9 @@ app.use(accessLoggerMiddleware);
 app.use("/api", routes_default);
 app.use("/api", userdetails_routes_default);
 app.use("/api/products", product_routes_default);
+app.use("/api/material", material_routes_default);
+app.use("/api/vendor", vendor_routes_default);
+app.use("/api/productmenu", productmenu_routes_default);
 app.use(notFoundMiddleware);
 app.use(errorHandler);
 
